@@ -1330,7 +1330,15 @@ const b64u = { enc: b => btoa(String.fromCharCode(...new Uint8Array(b))).replace
   dec: s => { s = s.replace(/-/g,'+').replace(/_/g,'/'); while (s.length % 4) s += '='; return Uint8Array.from(atob(s), c => c.charCodeAt(0)); } };
 function lockData(){ try { return JSON.parse(localStorage.getItem(LOCK_KEY) || 'null'); } catch(e){ return null; } }
 const webauthnOk = () => Boolean(window.PublicKeyCredential && navigator.credentials && window.isSecureContext && location.protocol === 'https:');
-function setLocked(v){ $('lock').hidden = !v; document.body.classList.toggle('locked', v); document.body.classList.remove('blur'); if (v) { $('lockMsg').textContent = 'Gesperrt'; $('lockRemove').hidden = true; } }
+let authBusy = false;
+async function tryUnlock(silent){
+  if (authBusy || !lockData()) return;
+  authBusy = true;
+  try { if (await lockAuth()) setLocked(false); }
+  catch(e){ if (!silent) { $('lockMsg').textContent = 'Entsperren nicht gelungen. Bitte erneut versuchen.'; $('lockRemove').hidden = false; } }
+  finally { authBusy = false; }
+}
+function setLocked(v){ $('lock').hidden = !v; document.body.classList.toggle('locked', v); document.body.classList.remove('blur'); if (v) { $('lockMsg').textContent = 'Gesperrt'; $('lockRemove').hidden = true; setTimeout(()=>tryUnlock(true), 350); } }
 async function lockAuth(){
   const d = lockData(); if (!d) return true;
   const r = await navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), rpId: location.hostname,
@@ -1357,10 +1365,7 @@ function bindLock(){
   let hiddenAt = 0;
   $('lockOn').addEventListener('click', lockSetup);
   $('lockOff').addEventListener('click', async ()=>{ try { if (await lockAuth()) { localStorage.removeItem(LOCK_KEY); renderLockUi(); showToast('Sperre ausgeschaltet.'); } } catch(e){ showToast('Bestätigung nicht gelungen.'); } });
-  $('unlockBtn').addEventListener('click', async ()=>{
-    try { if (await lockAuth()) setLocked(false); }
-    catch(e){ $('lockMsg').textContent = 'Entsperren nicht gelungen. Bitte erneut versuchen.'; $('lockRemove').hidden = false; }
-  });
+  $('unlockBtn').addEventListener('click', ()=>tryUnlock(false));
   $('lockRemove').addEventListener('click', ()=>{ if(confirm('Sperre entfernen? Danach ist die Seite ohne Face ID zugänglich.')){ localStorage.removeItem(LOCK_KEY); setLocked(false); renderLockUi(); } });
   document.addEventListener('visibilitychange', ()=>{
     if (!lockData()) return;
